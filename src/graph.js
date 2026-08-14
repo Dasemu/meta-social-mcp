@@ -11,7 +11,7 @@ async function graphRequest(path, { method = "GET", params = {} } = {}) {
   const url = new URL(`${BASE}/${ver()}/${path}`);
   const qs = { ...params, access_token: token };
   Object.entries(qs).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) url.searchParams.set(k, v);
+    if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
   });
 
   const res = await fetch(url.toString(), { method });
@@ -26,7 +26,10 @@ async function graphRequest(path, { method = "GET", params = {} } = {}) {
 
 // ---------- Publicacion: Facebook Page ----------
 
-export async function publishFacebookPost({ pageId, message, imageUrl, videoUrl, linkUrl }) {
+export async function publishFacebookPost({ pageId, message, imageUrl, videoUrl, linkUrl, media }) {
+  if (media && media.length >= 2) {
+    return publishFacebookCarousel({ pageId, message, media, linkUrl });
+  }
   if (videoUrl) {
     return graphRequest(`${pageId}/videos`, {
       method: "POST",
@@ -45,9 +48,38 @@ export async function publishFacebookPost({ pageId, message, imageUrl, videoUrl,
   });
 }
 
+// FB multi-foto/video: cada elemento se sube sin publicar y luego se referencia
+// desde un post de feed via attached_media.
+async function publishFacebookCarousel({ pageId, message, media, linkUrl }) {
+  if (media.length < 2 || media.length > 10) {
+    throw new Error("Un post multi-foto/video de Facebook admite entre 2 y 10 elementos");
+  }
+  const attachments = [];
+  for (const item of media) {
+    const isVideo = item.type === "video";
+    const uploaded = await graphRequest(`${pageId}/${isVideo ? "videos" : "photos"}`, {
+      method: "POST",
+      params: isVideo
+        ? { file_url: item.url, published: "false" }
+        : { url: item.url, published: "false" },
+    });
+    attachments.push({ media_fbid: uploaded.id });
+  }
+
+  const params = { message, link: linkUrl };
+  attachments.forEach((att, i) => {
+    params[`attached_media[${i}]`] = JSON.stringify(att);
+  });
+
+  return graphRequest(`${pageId}/feed`, { method: "POST", params });
+}
+
 // ---------- Publicacion: Instagram (cuenta profesional) ----------
 
-export async function publishInstagramPost({ igBusinessId, imageUrl, videoUrl, caption }) {
+export async function publishInstagramPost({ igBusinessId, imageUrl, videoUrl, caption, media }) {
+  if (media && media.length >= 2) {
+    return publishInstagramCarousel({ igBusinessId, caption, media });
+  }
   if (!imageUrl && !videoUrl) {
     throw new Error("Instagram requiere imageUrl o videoUrl (contenido accesible por URL publica)");
   }
@@ -70,6 +102,40 @@ export async function publishInstagramPost({ igBusinessId, imageUrl, videoUrl, c
   return graphRequest(`${igBusinessId}/media_publish`, {
     method: "POST",
     params: { creation_id: container.id },
+  });
+}
+
+// IG carrusel: cada elemento es un child container (is_carousel_item=true),
+// se agrupan en un container padre de tipo CAROUSEL y se publica ese.
+async function publishInstagramCarousel({ igBusinessId, caption, media }) {
+  if (media.length < 2 || media.length > 10) {
+    throw new Error("Un carrusel de Instagram admite entre 2 y 10 elementos");
+  }
+
+  const childIds = [];
+  for (const item of media) {
+    const isVideo = item.type === "video";
+    const child = await graphRequest(`${igBusinessId}/media`, {
+      method: "POST",
+      params: isVideo
+        ? { video_url: item.url, is_carousel_item: "true" }
+        : { image_url: item.url, is_carousel_item: "true" },
+    });
+    if (isVideo) {
+      await waitUntilContainerReady(child.id);
+    }
+    childIds.push(child.id);
+  }
+
+  const parent = await graphRequest(`${igBusinessId}/media`, {
+    method: "POST",
+    params: { media_type: "CAROUSEL", children: childIds.join(","), caption: caption || "" },
+  });
+  await waitUntilContainerReady(parent.id);
+
+  return graphRequest(`${igBusinessId}/media_publish`, {
+    method: "POST",
+    params: { creation_id: parent.id },
   });
 }
 

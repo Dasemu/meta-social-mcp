@@ -68,7 +68,8 @@ claude mcp add --transport http socialmcp http://127.0.0.1:3300/mcp
 
 | Herramienta | Qué hace | Endpoint(s) Graph API | Permisos necesarios |
 |---|---|---|---|
-| `publish_post` | Publica ya en Facebook y/o Instagram (texto, imagen, video o enlace). Instagram exige `imageUrl` o `videoUrl`. | `POST /{page-id}/feed`, `/photos`, `/videos` · `POST /{ig-id}/media` + `/media_publish` | `pages_manage_posts`, `pages_show_list`, `instagram_basic`, `instagram_content_publish` |
+| `publish_post` | Publica ya en Facebook y/o Instagram: texto, imagen, video, enlace, o un **carrusel** (2-10 elementos) via `media`. Instagram exige `imageUrl`/`videoUrl`/`media`. | `POST /{page-id}/feed`, `/photos`, `/videos` · `POST /{ig-id}/media` + `/media_publish` | `pages_manage_posts`, `pages_show_list`, `instagram_basic`, `instagram_content_publish` |
+| `upload_media` | Sube un archivo local (base64) y devuelve una URL pública servida por este mismo servidor, para usarla en `publish_post`. | — (no llama a Graph API) | — |
 | `list_posts` | Lee el histórico de publicaciones propias (FB o IG). | `GET /{page-id}/posts` · `GET /{ig-id}/media` | `pages_read_engagement`, `pages_show_list`, `instagram_basic` |
 | `list_comments` | Lista comentarios de un post/media propio, o respuestas de un comentario. | `GET /{object-id}/comments` | `pages_read_engagement`, `pages_manage_engagement` (FB) · `instagram_basic`, `instagram_manage_comments` (IG) |
 | `get_comment` | Lee el detalle de un comentario por ID. | `GET /{comment-id}` | igual que `list_comments` |
@@ -78,12 +79,30 @@ Todos los permisos anteriores requieren, además, `business_management` si la ap
 activos gestionados desde Business Manager, y que la app haya pasado **App Review** de Meta para
 usarlos fuera del modo de desarrollo/testers.
 
+### Carrusel (varias imágenes/videos en un post)
+
+Pasa `media: [{ url, type }, ...]` (2 a 10 elementos, `type` es `"image"` o `"video"`) en vez de
+`imageUrl`/`videoUrl`. En Facebook cada elemento se sube sin publicar y se referencia desde el post
+via `attached_media`; en Instagram se crean *child containers* (`is_carousel_item=true`) agrupados
+en un container padre `media_type=CAROUSEL`.
+
+### Subir contenido local (`upload_media`)
+
+Meta exige que `imageUrl`/`videoUrl` sean URLs públicas — no vale una ruta local. `upload_media`
+recibe el archivo codificado en base64, lo guarda en `MEDIA_DIR` y lo sirve en
+`MEDIA_BASE_URL/media/<archivo>` (el mismo dominio público donde ya corre este MCP, sin necesidad
+de un túnel aparte). El resultado se pasa directamente como `imageUrl`/`videoUrl`/`media[].url` a
+`publish_post`. Los archivos se borran automáticamente pasados `MEDIA_RETENTION_DAYS` días (por
+defecto 7), y el tamaño máximo por archivo es `MAX_UPLOAD_MB` MB (por defecto 50).
+
 ## 7. Limitaciones importantes
 
-- **Instagram no admite publicaciones de solo texto**: siempre necesita `imageUrl` o `videoUrl`
-  accesible por una **URL pública** (no vale una ruta local ni una URL que requiera login).
-- Los videos/reels de Instagram necesitan tiempo de procesamiento: `publish_post` espera
-  automáticamente (hasta 60s) a que el contenedor esté listo antes de publicar.
+- **Instagram no admite publicaciones de solo texto**: siempre necesita `imageUrl`, `videoUrl` o
+  `media`, accesibles por una **URL pública** (no vale una ruta local ni una URL que requiera login;
+  usa `upload_media` para convertir un archivo local en una URL pública).
+- Los videos/reels de Instagram (y los elementos de video en un carrusel) necesitan tiempo de
+  procesamiento: `publish_post` espera automáticamente (hasta 60s por elemento) a que el contenedor
+  esté listo antes de publicar.
 - Instagram no tiene programación nativa de publicaciones ni este servidor la implementa;
   `publish_post` publica siempre de inmediato.
 

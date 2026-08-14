@@ -9,6 +9,7 @@ import {
   replyFacebookComment,
   replyInstagramComment,
 } from "./graph.js";
+import { saveMedia } from "./media.js";
 
 function text(payload) {
   return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
@@ -37,16 +38,31 @@ export function registerTools(server) {
       title: "Publicar en Facebook/Instagram",
       description:
         "Publica contenido propio en la Facebook Page y/o cuenta profesional de Instagram configuradas. " +
-        "Instagram exige imageUrl o videoUrl (no admite publicaciones de solo texto).",
+        "Instagram exige imageUrl/videoUrl o media (no admite publicaciones de solo texto). " +
+        "Para publicar un carrusel (varias imagenes/videos deslizables en un mismo post) usa `media` " +
+        "con 2 a 10 elementos en vez de imageUrl/videoUrl.",
       inputSchema: {
         platform: z.enum(["facebook", "instagram", "both"]),
         message: z.string().describe("Texto del post o caption"),
-        imageUrl: z.string().url().optional().describe("URL publica de una imagen"),
+        imageUrl: z.string().url().optional().describe("URL publica de una imagen (post de un solo elemento)"),
         videoUrl: z.string().url().optional().describe("URL publica de un video (IG lo publica como Reel)"),
         linkUrl: z.string().url().optional().describe("Solo Facebook: enlace a incluir en un post de texto"),
+        media: z
+          .array(
+            z.object({
+              url: z.string().url(),
+              type: z.enum(["image", "video"]).default("image"),
+            })
+          )
+          .min(2)
+          .max(10)
+          .optional()
+          .describe(
+            "Lista de 2 a 10 elementos para publicar un carrusel. Sustituye a imageUrl/videoUrl."
+          ),
       },
     },
-    async ({ platform, message, imageUrl, videoUrl, linkUrl }) => {
+    async ({ platform, message, imageUrl, videoUrl, linkUrl, media }) => {
       try {
         const results = {};
         if (platform === "facebook" || platform === "both") {
@@ -56,6 +72,7 @@ export function registerTools(server) {
             imageUrl,
             videoUrl,
             linkUrl,
+            media,
           });
         }
         if (platform === "instagram" || platform === "both") {
@@ -64,9 +81,34 @@ export function registerTools(server) {
             imageUrl,
             videoUrl,
             caption: message,
+            media,
           });
         }
         return text(results);
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "upload_media",
+    {
+      title: "Subir imagen/video local",
+      description:
+        "Sube un archivo local (imagen o video) codificado en base64 y lo publica en una URL publica " +
+        "servida por este mismo servidor, para poder usarla luego en publish_post (imageUrl/videoUrl/media). " +
+        "Los archivos se borran automaticamente tras unos dias (retencion configurable).",
+      inputSchema: {
+        filename: z.string().describe("Nombre de archivo original, ej. foto.jpg"),
+        mimeType: z.string().describe("Tipo MIME, ej. image/jpeg o video/mp4"),
+        dataBase64: z.string().describe("Contenido del archivo codificado en base64"),
+      },
+    },
+    async ({ filename, mimeType, dataBase64 }) => {
+      try {
+        const result = saveMedia({ filename, mimeType, dataBase64 });
+        return text(result);
       } catch (err) {
         return errorText(err);
       }

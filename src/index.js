@@ -3,6 +3,7 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerTools } from "./tools.js";
+import { mediaDir } from "./media.js";
 
 function buildServer() {
   const server = new McpServer({ name: "socialmcp", version: "1.0.0" });
@@ -11,7 +12,13 @@ function buildServer() {
 }
 
 const app = express();
-app.use(express.json());
+
+const uploadLimitMb = (Number(process.env.MAX_UPLOAD_MB) || 50) + 5;
+app.use(express.json({ limit: `${uploadLimitMb}mb` }));
+
+// Sirve los archivos subidos via upload_media en /media/<archivo>, publicos
+// para que Meta pueda leerlos al publicar.
+app.use("/media", express.static(mediaDir()));
 
 app.use((req, res, next) => {
   const requiredToken = process.env.MCP_AUTH_TOKEN;
