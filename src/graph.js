@@ -1,0 +1,171 @@
+const BASE = "https://graph.facebook.com";
+
+function ver() {
+  return process.env.META_GRAPH_VERSION || "v21.0";
+}
+
+async function graphRequest(path, { method = "GET", params = {} } = {}) {
+  const token = process.env.META_ACCESS_TOKEN;
+  if (!token) throw new Error("Falta META_ACCESS_TOKEN en el entorno (.env)");
+
+  const url = new URL(`${BASE}/${ver()}/${path}`);
+  const qs = { ...params, access_token: token };
+  Object.entries(qs).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
+  });
+
+  const res = await fetch(url.toString(), { method });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    const msg = data?.error?.message || res.statusText;
+    const code = data?.error?.code;
+    throw new Error(`Graph API error (${path})${code ? ` [${code}]` : ""}: ${msg}`);
+  }
+  return data;
+}
+
+// ---------- Publicacion: Facebook Page ----------
+
+export async function publishFacebookPost({ pageId, message, imageUrl, videoUrl, linkUrl }) {
+  if (videoUrl) {
+    return graphRequest(`${pageId}/videos`, {
+      method: "POST",
+      params: { file_url: videoUrl, description: message },
+    });
+  }
+  if (imageUrl) {
+    return graphRequest(`${pageId}/photos`, {
+      method: "POST",
+      params: { url: imageUrl, caption: message },
+    });
+  }
+  return graphRequest(`${pageId}/feed`, {
+    method: "POST",
+    params: { message, link: linkUrl },
+  });
+}
+
+// ---------- Publicacion: Instagram (cuenta profesional) ----------
+
+export async function publishInstagramPost({ igBusinessId, imageUrl, videoUrl, caption }) {
+  if (!imageUrl && !videoUrl) {
+    throw new Error("Instagram requiere imageUrl o videoUrl (contenido accesible por URL publica)");
+  }
+  const mediaParams = videoUrl
+    ? { video_url: videoUrl, media_type: "REELS", caption: caption || "" }
+    : { image_url: imageUrl, caption: caption || "" };
+
+  // 1. Crear contenedor de media
+  const container = await graphRequest(`${igBusinessId}/media`, {
+    method: "POST",
+    params: mediaParams,
+  });
+
+  // Los videos/reels necesitan tiempo de procesamiento antes de publicarse
+  if (videoUrl) {
+    await waitUntilContainerReady(container.id);
+  }
+
+  // 2. Publicar el contenedor
+  return graphRequest(`${igBusinessId}/media_publish`, {
+    method: "POST",
+    params: { creation_id: container.id },
+  });
+}
+
+async function waitUntilContainerReady(containerId, { timeoutMs = 60000, intervalMs = 3000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await graphRequest(containerId, { params: { fields: "status_code" } });
+    if (status.status_code === "FINISHED") return;
+    if (status.status_code === "ERROR") {
+      throw new Error(`El contenedor de Instagram fallo al procesarse (${containerId})`);
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Timeout esperando a que Instagram procese el contenedor (${containerId})`);
+}
+
+// ---------- Lectura de historico propio ----------
+
+const FB_POST_FIELDS =
+  "id,message,created_time,permalink_url,full_picture,attachments{media_type,url,media},status_type";
+
+const IG_MEDIA_FIELDS =
+  "id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count";
+
+export async function listFacebookPosts({ pageId, limit = 10, after }) {
+  return graphRequest(`${pageId}/posts`, {
+    params: { fields: FB_POST_FIELDS, limit, after },
+  });
+}
+
+export async function listInstagramMedia({ igBusinessId, limit = 10, after }) {
+  return graphRequest(`${igBusinessId}/media`, {
+    params: { fields: IG_MEDIA_FIELDS, limit, after },
+  });
+}
+
+// ---------- Comentarios ----------
+
+const COMMENT_FIELDS = "id,message,from,created_time,like_count,comment_count";
+
+export async function listComments({ objectId, limit = 25, after }) {
+  return graphRequest(`${objectId}/comments`, {
+    params: { fields: COMMENT_FIELDS, limit, after },
+  });
+}
+
+export async function getComment({ commentId }) {
+  return graphRequest(commentId, { params: { fields: COMMENT_FIELDS } });
+}
+
+// FB: una respuesta es un comentario anidado, se crea igual que un comentario normal
+// sobre el comment-id padre (edge /comments).
+export async function replyFacebookComment({ commentId, message }) {
+  return graphRequest(`${commentId}/comments`, {
+    method: "POST",
+    params: { message },
+  });
+}
+
+// IG: las respuestas usan un edge dedicado /replies sobre el ig-comment-id.
+export async function replyInstagramComment({ commentId, message }) {
+  return graphRequest(`${commentId}/replies`, {
+    method: "POST",
+    params: { message },
+  });
+}
+
+// ---------- Utilidades de configuracion ----------
+
+export async function getPageAndIgIds(userToken) {
+  const accounts = await graphRequest("me/accounts", {
+    params: { access_token: userToken },
+  });
+  const results = [];
+  for (const page of accounts.data || []) {
+    let igId = null;
+    try {
+      const ig = await graphRequest(page.id, {
+        params: { fields: "instagram_business_account", access_token: userToken },
+      });
+      igId = ig.instagram_business_account?.id || null;
+    } catch {
+      igId = null;
+    }
+    results.push({ pageId: page.id, pageName: page.name, igBusinessId: igId });
+  }
+  return results;
+}
+
+export async function exchangeForLongLivedToken({ appId, appSecret, shortToken }) {
+  return graphRequest("oauth/access_token", {
+    params: {
+      grant_type: "fb_exchange_token",
+      client_id: appId,
+      client_secret: appSecret,
+      fb_exchange_token: shortToken,
+    },
+  });
+}
