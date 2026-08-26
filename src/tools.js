@@ -8,6 +8,10 @@ import {
   getComment,
   replyFacebookComment,
   replyInstagramComment,
+  getFacebookPostInsights,
+  getInstagramMediaInsights,
+  getFacebookPageInsights,
+  getInstagramAccountInsights,
 } from "./graph.js";
 import { saveMedia } from "./media.js";
 
@@ -201,6 +205,76 @@ export function registerTools(server) {
           platform === "facebook"
             ? await replyFacebookComment({ commentId, message })
             : await replyInstagramComment({ commentId, message });
+        return text(data);
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_post_insights",
+    {
+      title: "Metricas de una publicacion",
+      description:
+        "Obtiene metricas (impresiones, alcance, interacciones...) de un post propio de Facebook " +
+        "o media propia de Instagram. Requiere el permiso read_insights (FB) / instagram_manage_insights " +
+        "(IG) en el token. Si Meta responde con error de metrica invalida (metricas obsoletas o renombradas " +
+        "segun la version de la Graph API), pasa `metrics` con los nombres vigentes para tu version.",
+      inputSchema: {
+        platform: z.enum(["facebook", "instagram"]),
+        objectId: z.string().describe("ID del post (Facebook) o de la media (Instagram)"),
+        metrics: z
+          .array(z.string())
+          .optional()
+          .describe("Metricas a pedir. Si se omite se usa un conjunto por defecto razonable."),
+        period: z
+          .enum(["day", "week", "days_28", "lifetime"])
+          .optional()
+          .describe("Solo Facebook: periodo de agregacion de las metricas"),
+      },
+    },
+    async ({ platform, objectId, metrics, period }) => {
+      try {
+        const data =
+          platform === "facebook"
+            ? await getFacebookPostInsights({ postId: objectId, metrics, period })
+            : await getInstagramMediaInsights({ mediaId: objectId, metrics });
+        return text(data);
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_account_insights",
+    {
+      title: "Metricas de la Pagina/cuenta",
+      description:
+        "Obtiene metricas agregadas de la propia Facebook Page o cuenta de Instagram configuradas " +
+        "(alcance, impresiones, seguidores...). Requiere el permiso read_insights (FB) / " +
+        "instagram_manage_insights (IG) en el token.",
+      inputSchema: {
+        platform: z.enum(["facebook", "instagram"]),
+        metrics: z
+          .array(z.string())
+          .optional()
+          .describe("Metricas a pedir. Si se omite se usa un conjunto por defecto razonable."),
+        period: z
+          .enum(["day", "week", "days_28"])
+          .optional()
+          .describe("Periodo de agregacion de las metricas"),
+        since: z.string().optional().describe("Fecha/timestamp de inicio del rango"),
+        until: z.string().optional().describe("Fecha/timestamp de fin del rango"),
+      },
+    },
+    async ({ platform, metrics, period, since, until }) => {
+      try {
+        const data =
+          platform === "facebook"
+            ? await getFacebookPageInsights({ pageId: requirePageId(), metrics, period, since, until })
+            : await getInstagramAccountInsights({ igBusinessId: requireIgId(), metrics, period, since, until });
         return text(data);
       } catch (err) {
         return errorText(err);

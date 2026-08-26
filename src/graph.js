@@ -4,6 +4,25 @@ function ver() {
   return process.env.META_GRAPH_VERSION || "v21.0";
 }
 
+// El campo paging.next/previous que devuelve la Graph API incluye el access_token
+// en la propia URL (para poder seguir el cursor sin credenciales aparte). Como esa
+// respuesta se reenvia tal cual al modelo, hay que quitarlo antes de devolverla.
+function stripTokenFromPaging(data) {
+  if (!data || !data.paging) return data;
+  for (const key of ["next", "previous"]) {
+    const link = data.paging[key];
+    if (typeof link !== "string") continue;
+    try {
+      const u = new URL(link);
+      u.searchParams.delete("access_token");
+      data.paging[key] = u.toString();
+    } catch {
+      // URL no parseable: la dejamos como esta
+    }
+  }
+  return data;
+}
+
 async function graphRequest(path, { method = "GET", params = {} } = {}) {
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) throw new Error("Falta META_ACCESS_TOKEN en el entorno (.env)");
@@ -21,7 +40,7 @@ async function graphRequest(path, { method = "GET", params = {} } = {}) {
     const code = data?.error?.code;
     throw new Error(`Graph API error (${path})${code ? ` [${code}]` : ""}: ${msg}`);
   }
-  return data;
+  return stripTokenFromPaging(data);
 }
 
 // ---------- Publicacion: Facebook Page ----------
@@ -200,6 +219,52 @@ export async function replyInstagramComment({ commentId, message }) {
   return graphRequest(`${commentId}/replies`, {
     method: "POST",
     params: { message },
+  });
+}
+
+// ---------- Insights ----------
+//
+// Meta deprecia y renombra metricas de insights entre versiones de la Graph API con
+// cierta frecuencia, asi que estas listas son solo un valor por defecto razonable:
+// si la API responde con error de metrica invalida, hay que pasar `metrics` explicito
+// con las metricas vigentes para la version configurada (META_GRAPH_VERSION).
+
+const DEFAULT_FB_POST_METRICS = ["post_impressions", "post_engaged_users", "post_clicks"];
+const DEFAULT_IG_MEDIA_METRICS = ["reach", "likes", "comments", "saved", "shares", "total_interactions"];
+const DEFAULT_FB_PAGE_METRICS = ["page_impressions", "page_engaged_users", "page_fans"];
+const DEFAULT_IG_ACCOUNT_METRICS = ["reach", "profile_views", "follower_count"];
+
+export async function getFacebookPostInsights({ postId, metrics, period }) {
+  return graphRequest(`${postId}/insights`, {
+    params: { metric: (metrics?.length ? metrics : DEFAULT_FB_POST_METRICS).join(","), period },
+  });
+}
+
+export async function getInstagramMediaInsights({ mediaId, metrics }) {
+  return graphRequest(`${mediaId}/insights`, {
+    params: { metric: (metrics?.length ? metrics : DEFAULT_IG_MEDIA_METRICS).join(",") },
+  });
+}
+
+export async function getFacebookPageInsights({ pageId, metrics, period, since, until }) {
+  return graphRequest(`${pageId}/insights`, {
+    params: {
+      metric: (metrics?.length ? metrics : DEFAULT_FB_PAGE_METRICS).join(","),
+      period,
+      since,
+      until,
+    },
+  });
+}
+
+export async function getInstagramAccountInsights({ igBusinessId, metrics, period, since, until }) {
+  return graphRequest(`${igBusinessId}/insights`, {
+    params: {
+      metric: (metrics?.length ? metrics : DEFAULT_IG_ACCOUNT_METRICS).join(","),
+      period,
+      since,
+      until,
+    },
   });
 }
 
