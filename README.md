@@ -74,6 +74,8 @@ claude mcp add --transport http socialmcp http://127.0.0.1:3300/mcp
 | `list_comments` | Lista comentarios de un post/media propio, o respuestas de un comentario. | `GET /{object-id}/comments` | `pages_read_engagement`, `pages_manage_engagement` (FB) · `instagram_basic`, `instagram_manage_comments` (IG) |
 | `get_comment` | Lee el detalle de un comentario por ID. | `GET /{comment-id}` | igual que `list_comments` |
 | `reply_comment` | Responde a un comentario propio. | `POST /{comment-id}/comments` (FB) · `POST /{comment-id}/replies` (IG) | `pages_manage_engagement` (FB) · `instagram_basic`, `instagram_manage_comments` (IG) |
+| `get_post_insights` | Metricas de un post/media propio (impresiones, alcance, interacciones...). | `GET /{post-id}/insights` (FB) · `GET /{ig-media-id}/insights` (IG) | `read_insights` (FB) · `instagram_basic`, `instagram_manage_insights` (IG) |
+| `get_account_insights` | Metricas agregadas de la propia Page/cuenta IG (alcance, seguidores...). | `GET /{page-id}/insights` (FB) · `GET /{ig-id}/insights` (IG) | `read_insights` (FB) · `instagram_basic`, `instagram_manage_insights` (IG) |
 
 Todos los permisos anteriores requieren, además, `business_management` si la app opera sobre
 activos gestionados desde Business Manager, y que la app haya pasado **App Review** de Meta para
@@ -94,6 +96,17 @@ recibe el archivo codificado en base64, lo guarda en `MEDIA_DIR` y lo sirve en
 de un túnel aparte). El resultado se pasa directamente como `imageUrl`/`videoUrl`/`media[].url` a
 `publish_post`. Los archivos se borran automáticamente pasados `MEDIA_RETENTION_DAYS` días (por
 defecto 7), y el tamaño máximo por archivo es `MAX_UPLOAD_MB` MB (por defecto 50).
+
+### Insights (`get_post_insights` / `get_account_insights`)
+
+Meta renombra y deprecia metricas de insights entre versiones de la Graph API con cierta
+frecuencia. Ambas herramientas usan un conjunto de metricas por defecto razonable, pero si Meta
+responde con un error de metrica invalida hay que pasar `metrics` explicitamente con los nombres
+vigentes para tu `META_GRAPH_VERSION` (ver la referencia de [Page Insights](https://developers.facebook.com/docs/graph-api/reference/page/insights)
+e [Instagram Insights](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/insights)
+en la documentacion de Meta). Si el error es de permisos (`#10`/`#200`), falta el scope
+`read_insights` / `instagram_manage_insights` en el token — hay que volver a autorizar la app con
+ese permiso añadido.
 
 ## 7. Limitaciones importantes
 
