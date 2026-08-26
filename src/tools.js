@@ -230,8 +230,12 @@ export function registerTools(server) {
           .describe("Metricas a pedir. Si se omite se usa un conjunto por defecto razonable."),
         period: z
           .enum(["day", "week", "days_28", "lifetime"])
-          .optional()
-          .describe("Solo Facebook: periodo de agregacion de las metricas"),
+          .default("lifetime")
+          .describe(
+            "Solo Facebook: periodo de agregacion. Por defecto lifetime (desde que se publico); " +
+              "sin period explicito, Meta puede aplicar una ventana de fechas reciente y estrecha " +
+              "y devolver data:[] para posts fuera de ella."
+          ),
       },
     },
     async ({ platform, objectId, metrics, period }) => {

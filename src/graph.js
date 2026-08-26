@@ -228,13 +228,30 @@ export async function replyInstagramComment({ commentId, message }) {
 // cierta frecuencia, asi que estas listas son solo un valor por defecto razonable:
 // si la API responde con error de metrica invalida, hay que pasar `metrics` explicito
 // con las metricas vigentes para la version configurada (META_GRAPH_VERSION).
-
-const DEFAULT_FB_POST_METRICS = ["post_impressions", "post_engaged_users", "post_clicks"];
+//
+// Confirmado en v26.0: toda la familia "post_impressions*"/"post_engaged_users" fue
+// retirada (error #100). Las metricas de post que siguen aceptando son post_clicks,
+// post_reactions_by_type_total, post_reactions_like_total, post_activity_by_action_type
+// (universales), y para posts de video/reel ademas post_video_views, post_video_view_time,
+// post_video_avg_time_watched, blue_reels_play_count (fallan con #100 en posts sin video,
+// por eso no van en el default).
+const DEFAULT_FB_POST_METRICS = [
+  "post_clicks",
+  "post_reactions_by_type_total",
+  "post_reactions_like_total",
+  "post_activity_by_action_type",
+];
 const DEFAULT_IG_MEDIA_METRICS = ["reach", "likes", "comments", "saved", "shares", "total_interactions"];
 const DEFAULT_FB_PAGE_METRICS = ["page_impressions", "page_engaged_users", "page_fans"];
 const DEFAULT_IG_ACCOUNT_METRICS = ["reach", "profile_views", "follower_count"];
 
-export async function getFacebookPostInsights({ postId, metrics, period }) {
+// El period por defecto de la API para /{post-id}/insights cuando se omite `period` no
+// es fiable: en la practica hemos visto que sin period explicito Meta aplica una ventana
+// de fechas estrecha (dias recientes) y devuelve data:[] para posts fuera de ella, en vez
+// de agregar "desde que se publico" como cabria esperar. Por eso aqui SIEMPRE se manda
+// period explicito (lifetime salvo que se pida otro), y nunca since/until — since/until
+// combinado con period=lifetime tampoco tiene sentido (lifetime ya es "desde publicacion").
+export async function getFacebookPostInsights({ postId, metrics, period = "lifetime" }) {
   return graphRequest(`${postId}/insights`, {
     params: { metric: (metrics?.length ? metrics : DEFAULT_FB_POST_METRICS).join(","), period },
   });
@@ -272,7 +289,7 @@ export async function getInstagramAccountInsights({ igBusinessId, metrics, perio
 
 export async function getPageAndIgIds(userToken) {
   const accounts = await graphRequest("me/accounts", {
-    params: { access_token: userToken },
+    params: { fields: "name,access_token", access_token: userToken },
   });
   const results = [];
   for (const page of accounts.data || []) {
@@ -285,7 +302,12 @@ export async function getPageAndIgIds(userToken) {
     } catch {
       igId = null;
     }
-    results.push({ pageId: page.id, pageName: page.name, igBusinessId: igId });
+    results.push({
+      pageId: page.id,
+      pageName: page.name,
+      pageAccessToken: page.access_token,
+      igBusinessId: igId,
+    });
   }
   return results;
 }

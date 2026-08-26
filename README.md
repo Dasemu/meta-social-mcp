@@ -35,13 +35,18 @@ npm run extend-token
 
 6. Copia el token resultante a `META_ACCESS_TOKEN` en tu `.env` (sobrescribe el corto).
 
-## 3. Obtener Page ID e Instagram Business ID
+## 3. Obtener Page ID, Instagram Business ID y token de pagina
 
 ```bash
 npm run get-ids
 ```
 
-Copia los IDs correctos a `META_PAGE_ID` y `META_IG_BUSINESS_ID` en el `.env`.
+Copia `META_PAGE_ID` y `META_IG_BUSINESS_ID` de tu pagina al `.env`. Este comando tambien imprime el
+**Page Access Token** de cada pagina — sustituye `META_ACCESS_TOKEN` por ese valor (no el token de
+usuario) para que `publish_post` y el resto de herramientas operen correctamente sobre la pagina.
+Como sale de un token de usuario ya de larga duracion, el Page Access Token resultante no caduca
+(mientras no cambies la contrasena de la cuenta ni revoques el token), asi que no hace falta
+renovarlo aparte con `extend-token`.
 
 ## 4. Arrancar el servidor
 
@@ -107,6 +112,20 @@ e [Instagram Insights](https://developers.facebook.com/docs/instagram-platform/i
 en la documentacion de Meta). Si el error es de permisos (`#10`/`#200`), falta el scope
 `read_insights` / `instagram_manage_insights` en el token — hay que volver a autorizar la app con
 ese permiso añadido.
+
+Dos comportamientos confirmados en la practica (Graph API v26.0) que conviene tener en cuenta:
+
+- **`get_post_insights` en Facebook siempre manda `period` explicito (por defecto `lifetime`)**.
+  Si se omite `period`, Meta puede aplicar internamente una ventana de fechas reciente y estrecha
+  y devolver `data: []` para cualquier post fuera de ella, sin error — parece que no hay datos
+  cuando en realidad falta el parametro. Nunca se manda `since`/`until` en insights de post: no
+  tiene sentido combinarlos con `period=lifetime` (que ya es "desde que se publico").
+- **La familia `post_impressions*` y `post_engaged_users` esta retirada** (error `#100`) en v26.0.
+  El default actual usa `post_clicks`, `post_reactions_by_type_total`, `post_reactions_like_total`
+  y `post_activity_by_action_type` (validas para cualquier tipo de post). Para posts de video/reel
+  tambien estan disponibles `post_video_views`, `post_video_view_time`,
+  `post_video_avg_time_watched` y `blue_reels_play_count` (fallan con `#100` en posts sin video,
+  por eso no van en el default) — pasalas explicitamente en `metrics` cuando el post sea de video.
 
 ## 7. Limitaciones importantes
 
