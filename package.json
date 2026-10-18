@@ -1,6 +1,6 @@
 {
   "name": "socialmcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP HTTP server para publicar y gestionar Facebook Pages e Instagram (cuentas profesionales) via Graph API oficial de Meta",
   "type": "module",
   "main": "src/index.js",
