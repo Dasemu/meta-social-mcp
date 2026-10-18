@@ -1,0 +1,28 @@
+name: CI
+
+# This repo currently only has a `master` branch (no `development`/`main` split yet).
+# Update these triggers if/when the standard `development`/`main` branches are introduced.
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      # No linter or test suite is configured in package.json yet; this is the quickest
+      # meaningful check available (catches syntax errors in every source file).
+      - name: Syntax check
+        run: |
+          for f in $(find src -name '*.js'); do node --check "$f"; done
