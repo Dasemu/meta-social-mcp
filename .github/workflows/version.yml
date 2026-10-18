@@ -1,0 +1,34 @@
+name: Version
+
+# Simplified for now: this repo only has a `master` branch (no `development`/`main` split yet).
+# Once that split exists, update this to the full development→main bump rules described in the
+# global CLAUDE.md (PATCH bump on push to development, MINOR bump + PATCH reset on an approved
+# development→main PR, PATCH bump on a direct hotfix push to main).
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') && github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bump patch version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm version patch --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          git commit -am "chore(release): v${VERSION} [skip ci]"
+          git push
